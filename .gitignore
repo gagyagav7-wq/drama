@@ -1,0 +1,5 @@
+.env
+*.session
+*.db
+__pycache__/
+temp_*.mp4
