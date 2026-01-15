@@ -76,36 +76,43 @@ def gas_download(platform, drama_id):
         try:
             # Step A: Download semua episode dalam batch ini
             for idx, ep in enumerate(batch, start=start_num):
-                # --- RADAR PENCARI LINK VIDEO ---
-                # Kita cek semua kemungkinan nama kunci
-                v_url = (
-                    ep.get('url') or 
-                    ep.get('videoUrl') or 
-                    ep.get('playUrl') or 
-                    ep.get('link') or 
-                    ep.get('video_url') or
-                    ep.get('downloadUrl') or
-                    (ep.get('raw') or {}).get('videoUrl')
-                )
+                v_url = None
                 
-                # --- MODE MATA-MATA (DEBUG) ---
-                # Kalau link gak ketemu di episode pertama batch, kasih tau kita isinya apa!
-                if not v_url and idx == start_num:
-                    print(f"⚠️ ZONK! Gak nemu link video di Eps {idx}.")
-                    print(f"🔍 ISI DATA EPISODE: {list(ep.keys())}") # Intip nama kuncinya
-                    # print(ep) # Uncomment kalo mau liat isi fullnya (bisa panjang banget)
+                # --- TEKNIK 1: BONGKAR CDNLIST (Khas Dramabox) ---
+                cdn_data = ep.get('cdnList')
+                if cdn_data and isinstance(cdn_data, list) and len(cdn_data) > 0:
+                    # Biasanya link ada di urutan pertama
+                    item = cdn_data[0]
+                    if isinstance(item, str):
+                        v_url = item # Kalau isinya langsung link text
+                    elif isinstance(item, dict):
+                        v_url = item.get('url') or item.get('path') # Kalau isinya object
+                
+                # --- TEKNIK 2: CARI DI KEY LAIN (Cadangan) ---
+                if not v_url:
+                    v_url = (
+                        ep.get('url') or 
+                        ep.get('videoUrl') or 
+                        ep.get('playUrl') or 
+                        ep.get('link') or
+                        ep.get('downloadUrl')
+                    )
 
+                # --- MODE MATA-MATA V2 (DEBUG ISI CDN) ---
+                if not v_url and idx == start_num:
+                    print(f"⚠️ ZONK LAGI di Eps {idx}!")
+                    print(f"📦 Isi cdnList: {cdn_data}") # Kita intip isinya apa
+                
                 if not v_url: continue
                 
                 v_file = f"temp_{idx}.mp4"
-                print(f"📥 Download Eps {idx}...") # Kasih visual biar tau dia kerja
+                print(f"📥 Download Eps {idx}...")
                 download_file(v_url, v_file)
                 temp_files.append(v_file)
 
             if not temp_files: 
                 print(f"❌ Batch {batch_label} Kosong (Gagal download semua).")
                 continue
-
 
             # Gabungkan dengan FFmpeg
             with open("list.txt", "w") as f:
