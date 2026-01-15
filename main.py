@@ -5,7 +5,6 @@ from telethon.sync import TelegramClient
 from telethon import functions, types
 from telethon.tl.types import DocumentAttributeVideo
 from database import init_db, is_duplicate, save_history
-# 👇 Tambahin generate_thumbnail di sini
 from utils import get_video_info, download_file, generate_thumbnail 
 from api_handler import get_drama_data
 
@@ -100,7 +99,6 @@ async def gas_download(platform, drama_id):
         v_url = (ep.get('raw') or {}).get('videoUrl') or ep.get('videoUrl')
         if not v_url: continue
 
-        # NAMA FILE UNTUK VIDEO DAN THUMBNAIL
         v_file = f"temp_{drama_id}_{data['episodes'].index(ep)}.mp4"
         thumb_path = f"thumb_{drama_id}_{data['episodes'].index(ep)}.jpg" 
         
@@ -109,7 +107,6 @@ async def gas_download(platform, drama_id):
             download_file(v_url, v_file)
             w, h, dur = get_video_info(v_file)
             
-            # 👇 GENERATE THUMBNAIL (Uncomment kalau di utils.py ada fungsinya)
             try:
                 generate_thumbnail(v_file, thumb_path)
             except:
@@ -117,14 +114,14 @@ async def gas_download(platform, drama_id):
 
             print(f"📤 Uploading {ep_name}...")
             
-            async with client.action(GROUP_ID, 'video', reply_to=topic_id):
+            # FIX: HAPUS reply_to DI SINI
+            async with client.action(GROUP_ID, 'video'):
                 await client.send_file(
                     GROUP_ID, 
                     v_file,
-                    # 👇 PASANG THUMB DISINI
                     thumb=thumb_path if os.path.exists(thumb_path) else None,
                     caption=f"🎬 **{title}**\n📌 {ep_name}", 
-                    reply_to=topic_id, 
+                    reply_to=topic_id, # Pastikan ini tetap ada
                     supports_streaming=True, 
                     attributes=[
                         DocumentAttributeVideo(
@@ -142,7 +139,6 @@ async def gas_download(platform, drama_id):
         except Exception as e:
             print(f"⚠️ Gagal upload {ep_name}: {e}")
         finally:
-            # 👇 BERSIH-BERSIH FILE
             if os.path.exists(v_file): os.remove(v_file)
             if os.path.exists(thumb_path): os.remove(thumb_path)
         
