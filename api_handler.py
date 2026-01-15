@@ -15,37 +15,48 @@ def get_drama_data(platform, drama_id):
         drama_data = {}
         episodes = []
 
-        # ---------------- NETSHORT ----------------
+        # ---------------- NETSHORT (FIXED DARI SCREENSHOT) ----------------
         if platform == 'netshort':
-            # FIX: Ganti parameter jadi shortPlayLibraryId sesuai input user
-            # Kalau nanti masih error, coba ganti param jadi 'bookId' atau 'id'
-            url_detail = f"{BASE_URL}/netshort/detail?shortPlayLibraryId={drama_id}"
-            url_eps = f"{BASE_URL}/netshort/allEpisode?shortPlayLibraryId={drama_id}"
-
-            # Debug Request Detail
-            res_info = requests.get(url_detail, headers=headers)
-            if res_info.status_code != 200:
-                print(f"❌ Error Detail Status: {res_info.status_code}")
-                print(f"📄 Response: {res_info.text[:200]}") # Print isi error
+            # Endpoint: /netshort/allepisode (huruf kecil semua)
+            # Parameter: shortPlayId (sesuai dokumentasi)
+            url = f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"
+            
+            print(f"🕵️ Trying URL: {url}") 
+            
+            res = requests.get(url, headers=headers)
+            
+            if res.status_code != 200:
+                print(f"❌ Error Status: {res.status_code}")
+                # Print error dari server (biasanya HTML kalo 404/500)
+                print(f"📄 Response: {res.text[:200]}") 
                 return None
             
-            info = res_info.json()
+            # Ambil data JSON
+            data_json = res.json()
             
-            # Debug Request Episodes
-            res_eps = requests.get(url_eps, headers=headers)
-            if res_eps.status_code != 200:
-                print(f"❌ Error Episode Status: {res_eps.status_code}")
-                return None
-                
-            eps_data = res_eps.json()
-
-            # Mapping Data Netshort
-            drama_data = info.get('data', info) # Jaga-jaga kalau dibungkus key 'data'
-            # Netshort kadang return list langsung, kadang dict
-            if isinstance(eps_data, list):
-                episodes = eps_data
+            # Karena endpoint ini khusus "Semua Episode", biasanya return:
+            # 1. Langsung List []
+            # 2. Atau Dict {"data": [...]}
+            if isinstance(data_json, list):
+                episodes = data_json
             else:
-                episodes = eps_data.get('data', []) or eps_data.get('episodeList', [])
+                 # Coba berbagai kemungkinan key
+                 episodes = data_json.get('data') or data_json.get('episodeList') or []
+            
+            # Handle Data Drama (Judul/Poster)
+            # Karena endpoint ini fokus ke episode, kita ambil info drama dari episode pertama
+            if episodes:
+                first_ep = episodes[0]
+                drama_data = {
+                    'title': first_ep.get('dramaTitle') or first_ep.get('shortPlayName') or f"Drama {drama_id}",
+                    'poster': first_ep.get('cover') or first_ep.get('shortPlayCover'),
+                    'desc': first_ep.get('desc') or "Sinopsis tidak tersedia."
+                }
+            else:
+                print("⚠️ Tidak ada episode ditemukan (List kosong).")
+                # Coba print respon aslinya buat debug
+                # print(f"DEBUG JSON: {data_json}") 
+                return None
 
         # ---------------- DRAMABOX ----------------
         elif platform == 'dramabox':
