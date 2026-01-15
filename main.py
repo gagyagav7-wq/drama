@@ -74,15 +74,38 @@ def gas_download(platform, drama_id):
         output_file = f"result_{drama_id}_{start_num}.mp4"
         
         try:
-            # Download per episode dalam batch
+            # Step A: Download semua episode dalam batch ini
             for idx, ep in enumerate(batch, start=start_num):
-                v_url = (ep.get('raw') or {}).get('videoUrl') or ep.get('videoUrl')
-                if v_url:
-                    fn = f"temp_{idx}.mp4"
-                    download_file(v_url, fn)
-                    temp_files.append(fn)
+                # --- RADAR PENCARI LINK VIDEO ---
+                # Kita cek semua kemungkinan nama kunci
+                v_url = (
+                    ep.get('url') or 
+                    ep.get('videoUrl') or 
+                    ep.get('playUrl') or 
+                    ep.get('link') or 
+                    ep.get('video_url') or
+                    ep.get('downloadUrl') or
+                    (ep.get('raw') or {}).get('videoUrl')
+                )
+                
+                # --- MODE MATA-MATA (DEBUG) ---
+                # Kalau link gak ketemu di episode pertama batch, kasih tau kita isinya apa!
+                if not v_url and idx == start_num:
+                    print(f"⚠️ ZONK! Gak nemu link video di Eps {idx}.")
+                    print(f"🔍 ISI DATA EPISODE: {list(ep.keys())}") # Intip nama kuncinya
+                    # print(ep) # Uncomment kalo mau liat isi fullnya (bisa panjang banget)
 
-            if not temp_files: continue
+                if not v_url: continue
+                
+                v_file = f"temp_{idx}.mp4"
+                print(f"📥 Download Eps {idx}...") # Kasih visual biar tau dia kerja
+                download_file(v_url, v_file)
+                temp_files.append(v_file)
+
+            if not temp_files: 
+                print(f"❌ Batch {batch_label} Kosong (Gagal download semua).")
+                continue
+
 
             # Gabungkan dengan FFmpeg
             with open("list.txt", "w") as f:
