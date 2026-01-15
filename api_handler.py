@@ -9,103 +9,119 @@ def get_drama_data(platform, drama_id):
     }
     platform = platform.lower()
     
-    print(f"🔄 Fetching data for {platform} ID: {drama_id}...")
+    print(f"🔄 Fetching data for {platform.upper()} ID: {drama_id}...")
 
     try:
+        url = ""
+        # ==========================================
+        # 1. BAGIAN MENENTUKAN URL
+        # ==========================================
+        if platform == 'netshort':
+            url = f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"
+            
+        elif platform == 'dramabox':
+            url = f"{BASE_URL}/dramabox/{drama_id}"
+            
+        elif platform == 'flickreels':
+            url = f"{BASE_URL}/flickreels/{drama_id}"
+            
+        else:
+            # Kalau lu iseng masukin 'shortmax' atau 'topshort', bakal lari kesini
+            # Dan kemungkinan besar bakal error 404 karena API-nya ga ada
+            url = f"{BASE_URL}/{platform}/{drama_id}"
+
+        print(f"📡 Request ke: {url}")
+
+        # ==========================================
+        # 2. EKSEKUSI REQUEST
+        # ==========================================
+        res = requests.get(url, headers=headers, timeout=30)
+        
+        if res.status_code != 200:
+            print(f"❌ Server Error! Status: {res.status_code}")
+            # Kalau 404 berarti endpoint ga ada
+            if res.status_code == 404:
+                print("⚠️ Kemungkinan Platform tidak disupport atau ID salah.")
+            else:
+                print(f"📄 Respon Server: {res.text[:200]}...") 
+            return None
+
+        try:
+            data_json = res.json()
+        except:
+            print("❌ Gagal baca JSON! Respon server bukan data valid.")
+            return None
+
+        # ==========================================
+        # 3. PARSING DATA (Cuma 3 Jenis)
+        # ==========================================
+        
         drama_data = {}
         episodes = []
 
-        # ---------------- NETSHORT (FIXED DARI SCREENSHOT) ----------------
+        # --- A. NETSHORT (Format List/Data Beda) ---
         if platform == 'netshort':
-            # Endpoint: /netshort/allepisode (huruf kecil semua)
-            # Parameter: shortPlayId (sesuai dokumentasi)
-            url = f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"
-            
-            print(f"🕵️ Trying URL: {url}") 
-            
-            res = requests.get(url, headers=headers)
-            
-            if res.status_code != 200:
-                print(f"❌ Error Status: {res.status_code}")
-                # Print error dari server (biasanya HTML kalo 404/500)
-                print(f"📄 Response: {res.text[:200]}") 
-                return None
-            
-            # Ambil data JSON
-            data_json = res.json()
-            
-            # Karena endpoint ini khusus "Semua Episode", biasanya return:
-            # 1. Langsung List []
-            # 2. Atau Dict {"data": [...]}
             if isinstance(data_json, list):
                 episodes = data_json
             else:
-                 # Coba berbagai kemungkinan key
-                 episodes = data_json.get('data') or data_json.get('episodeList') or []
+                episodes = data_json.get('data') or data_json.get('episodeList') or []
             
-            # Handle Data Drama (Judul/Poster)
-            # Karena endpoint ini fokus ke episode, kita ambil info drama dari episode pertama
             if episodes:
-                first_ep = episodes[0]
+                first = episodes[0]
                 drama_data = {
-                    'title': first_ep.get('dramaTitle') or first_ep.get('shortPlayName') or f"Drama {drama_id}",
-                    'poster': first_ep.get('cover') or first_ep.get('shortPlayCover'),
-                    'desc': first_ep.get('desc') or "Sinopsis tidak tersedia."
+                    'title': first.get('dramaTitle') or first.get('shortPlayName'),
+                    'poster': first.get('cover') or first.get('shortPlayCover'),
+                    'desc': first.get('desc') or "No Synopsis"
                 }
-            else:
-                print("⚠️ Tidak ada episode ditemukan (List kosong).")
-                # Coba print respon aslinya buat debug
-                # print(f"DEBUG JSON: {data_json}") 
-                return None
 
-        # ---------------- DRAMABOX ----------------
-        elif platform == 'dramabox':
-            url = f"{BASE_URL}/dramabox/detailAndAllEpisode?bookId={drama_id}"
-            res = requests.get(url, headers=headers).json()
-            drama_data = res.get('drama') or res.get('data') or {}
-            episodes = res.get('episodes') or res.get('episodeList', [])
-
-        # ---------------- LAINNYA (Generic) ----------------
+        # --- B. DRAMABOX & FLICKREELS (Format Object Standard) ---
         else:
-            url = f"{BASE_URL}/{platform}/detailAndAllEpisode?id={drama_id}"
-            res = requests.get(url, headers=headers).json()
-            drama_data = res.get('drama') or res.get('data') or {}
-            episodes = res.get('episodes') or res.get('episodeList', [])
+            # Masuk ke key 'data' kalau ada
+            if 'data' in data_json:
+                root_data = data_json['data']
+            else:
+                root_data = data_json 
 
-        # ---------------- VALIDASI DATA ----------------
+            episodes = (
+                root_data.get('episodes') or 
+                root_data.get('episode_list') or 
+                root_data.get('chapters') or 
+                []
+            )
+            drama_data = root_data
+
+        # ==========================================
+        # 4. FINALISASI
+        # ==========================================
+        
         if not episodes:
-            print(f"⚠️ Episode kosong untuk {platform} ID {drama_id}")
-            # Cek struktur data kalau kosong, print keys-nya buat debug
-            # print(f"Debug Data keys: {drama_data.keys()}")
+            print(f"⚠️ Data ditemukan tapi Episode Kosong! Cek ID lagi.")
             return None
 
-        # 2. MASTER RADAR POSTER
+        # Master Radar (Cari Poster/Judul)
         poster = (
             drama_data.get('poster') or 
-            drama_data.get('shortPlayCover') or 
-            drama_data.get('horizontal_cover') or 
+            drama_data.get('cover') or 
             drama_data.get('vertical_cover') or 
-            drama_data.get('cover') or
-            drama_data.get('horizontalCover') or
-            drama_data.get('verticalCover')
+            drama_data.get('bookCover') 
         )
 
-        # 3. MASTER RADAR JUDUL & SINOPSIS
         title = (
             drama_data.get('title') or 
-            drama_data.get('shortPlayName') or 
             drama_data.get('name') or 
+            drama_data.get('bookName') or 
             f"{platform.upper()}_{drama_id}"
         )
         
         desc = (
+            drama_data.get('desc') or 
             drama_data.get('description') or 
-            drama_data.get('shotIntroduce') or 
             drama_data.get('intro') or 
-            "Tidak ada sinopsis."
+            drama_data.get('introduction') or 
+            "-"
         )
 
-        print(f"✅ Data OK: {title} ({len(episodes)} Eps)")
+        print(f"✅ SUKSES: {title} | Dapet {len(episodes)} Episode")
 
         return {
             'title': title,
@@ -115,9 +131,7 @@ def get_drama_data(platform, drama_id):
             'total_eps': len(episodes)
         }
         
-    except json.JSONDecodeError:
-        print(f"❌ API Error: Response bukan JSON valid. Server mungkin error atau ID salah.")
-        return None
     except Exception as e:
-        print(f"❌ API Error System ({platform}): {e}")
+        print(f"❌ Error System ({platform}): {e}")
         return None
+        
