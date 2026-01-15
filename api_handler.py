@@ -12,42 +12,39 @@ def get_drama_data(platform, drama_id):
     print(f"🔄 Fetching data for {platform.upper()} ID: {drama_id}...")
 
     # ==========================================
-    # 1. STRATEGI URL (PRIORITAS LINK)
+    # 1. TARGET URL
     # ==========================================
     urls_to_try = []
 
     if platform == 'dramabox':
-        # INI LINK TEMUAN LU (PRIORITAS NO.1)
         urls_to_try = [
-            f"{BASE_URL}/dramabox/allepisode?bookId={drama_id}",       # <--- TARGET UTAMA
-            f"{BASE_URL}/dramabox/detailAndAllEpisode?bookId={drama_id}", # Cadangan 1
-            f"{BASE_URL}/dramabox/episode?bookId={drama_id}"             # Cadangan 2
+            f"{BASE_URL}/dramabox/allepisode?bookId={drama_id}",       # Target Utama
+            f"{BASE_URL}/dramabox/detailAndAllEpisode?bookId={drama_id}", 
+            f"{BASE_URL}/dramabox/episode?bookId={drama_id}"
         ]
     elif platform == 'netshort':
         urls_to_try = [f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"]
     elif platform == 'flickreels':
         urls_to_try = [f"{BASE_URL}/flickreels/{drama_id}"]
     else:
-        # Fallback (Generic)
         urls_to_try = [f"{BASE_URL}/{platform}/{drama_id}"]
 
     # ==========================================
-    # 2. EKSEKUSI HUNTER (Coba satu-satu)
+    # 2. EKSEKUSI REQUEST
     # ==========================================
     final_res = None
     
     for url in urls_to_try:
         try:
             print(f"👉 Nembak ke: {url}")
-            res = requests.get(url, headers=headers, timeout=20)
+            res = requests.get(url, headers=headers, timeout=30)
             
             if res.status_code == 200:
                 try:
                     data = res.json()
-                    # Validasi: Harus ada isi data/episode
                     if data: 
                         final_res = data
-                        print("   ✅ HIT! Target terkunci.")
+                        print("   ✅ HIT! Data masuk.")
                         break 
                 except:
                     print("   ❌ Bukan JSON Valid.")
@@ -57,73 +54,70 @@ def get_drama_data(platform, drama_id):
             print(f"   ⚠️ Error Koneksi: {e}")
 
     if not final_res:
-        print("❌ GAGAL TOTAL: Semua link dicoba tapi zonk. Cek ID lagi.")
+        print("❌ GAGAL TOTAL: Cek ID atau Server.")
         return None
 
     # ==========================================
-    # 3. PARSING DATA (OLAH HASIL)
+    # 3. PARSING CERDAS (LIST vs OBJECT)
     # ==========================================
     try:
         drama_data = {}
         episodes = []
-        data_json = final_res
-
-        # --- A. NETSHORT ---
-        if platform == 'netshort':
-            if isinstance(data_json, list):
-                episodes = data_json
-            else:
-                episodes = data_json.get('data') or data_json.get('episodeList') or []
-            
+        
+        # --- LOGIKA 1: Kalo datanya langsung LIST [...] (Kayak Netshort/Dramabox Allepisode) ---
+        if isinstance(final_res, list):
+            episodes = final_res
+            # Ambil info drama dari episode pertama
             if episodes:
-                first = episodes[0]
-                drama_data = {
-                    'title': first.get('dramaTitle') or first.get('shortPlayName'),
-                    'poster': first.get('cover') or first.get('shortPlayCover'),
-                    'desc': first.get('desc')
-                }
+                drama_data = episodes[0]
 
-        # --- B. DRAMABOX & LAINNYA ---
-        else:
-            # Kadang ada di dalam 'data', kadang langsung di root
-            root_data = data_json.get('data', data_json)
-
-            # RADAR EPISODE (Cari list video)
-            episodes = (
-                root_data.get('episodes') or 
-                root_data.get('episode_list') or 
-                root_data.get('chapterList') or 
-                root_data.get('chapters') or 
-                []
-            )
-            drama_data = root_data
+        # --- LOGIKA 2: Kalo datanya OBJECT {...} (Kayak Flickreels/Standard) ---
+        elif isinstance(final_res, dict):
+            # Kadang dibungkus 'data', kadang nggak
+            root = final_res.get('data', final_res)
+            
+            # Cek lagi, dalem 'data' isinya List atau Object?
+            if isinstance(root, list):
+                episodes = root
+                if episodes: drama_data = episodes[0]
+            else:
+                # Struktur Object Standard
+                episodes = (
+                    root.get('episodes') or 
+                    root.get('episode_list') or 
+                    root.get('chapterList') or 
+                    root.get('chapters') or 
+                    []
+                )
+                drama_data = root
 
         # ==========================================
-        # 4. FINALISASI
+        # 4. AMBIL DATA FINAL
         # ==========================================
         if not episodes:
-            print(f"⚠️ JSON masuk tapi Episode Kosong! API mungkin berubah.")
-            # Debug buat lu liat isinya apa kalau kosong
-            print(f"   🔑 Kunci yang ada: {list(drama_data.keys())}")
+            print(f"⚠️ Data kosong! (0 Episode)")
             return None
 
-        # Master Radar Info
+        # Master Radar (Cari Poster/Judul dimanapun dia ngumpet)
         poster = (
             drama_data.get('poster') or 
             drama_data.get('cover') or 
             drama_data.get('coverWap') or # Khas Dramabox
-            drama_data.get('bookCover')
+            drama_data.get('bookCover') or
+            drama_data.get('shortPlayCover')
         )
 
         title = (
             drama_data.get('title') or 
             drama_data.get('bookName') or # Khas Dramabox
             drama_data.get('name') or 
+            drama_data.get('dramaTitle') or
+            drama_data.get('shortPlayName') or
             f"{platform.upper()}_{drama_id}"
         )
         
         desc = (
-            drama_data.get('introduction') or # Khas Dramabox
+            drama_data.get('introduction') or 
             drama_data.get('desc') or 
             drama_data.get('description') or 
             "-"
@@ -141,4 +135,7 @@ def get_drama_data(platform, drama_id):
         
     except Exception as e:
         print(f"❌ Error Parsing ({platform}): {e}")
+        import traceback
+        traceback.print_exc() # Print detail error biar kita tau baris mana
         return None
+        
