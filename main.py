@@ -5,7 +5,8 @@ from telethon.sync import TelegramClient
 from telethon import functions, types
 from telethon.tl.types import DocumentAttributeVideo
 from database import init_db, is_duplicate, save_history
-from utils import get_video_info, download_file
+# 👇 Tambahin generate_thumbnail di sini
+from utils import get_video_info, download_file, generate_thumbnail 
 from api_handler import get_drama_data
 
 load_dotenv()
@@ -18,9 +19,7 @@ GROUP_ID = int(os.getenv('GROUP_ID'))
 # Start client
 client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
-# PERUBAHAN 1: Tambah 'async' di depan def
 async def gas_download(platform, drama_id):
-    # Note: get_drama_data masih sync (pake requests), gapapa biarin aja
     data = get_drama_data(platform, drama_id)
     
     if not data or not data['episodes']:
@@ -35,7 +34,6 @@ async def gas_download(platform, drama_id):
     is_new_topic = False
 
     try:
-        # PERUBAHAN 2: Semua command client pake 'await'
         r = await client(functions.channels.GetForumTopicsRequest(
             channel=GROUP_ID, offset_date=0, offset_id=0, offset_topic=0, limit=100
         ))
@@ -73,7 +71,6 @@ async def gas_download(platform, drama_id):
             poster_path = f"poster_{drama_id}.jpg"
             try:
                 download_file(data['poster'], poster_path)
-                # Pake await
                 msg = await client.send_file(
                     GROUP_ID, poster_path, 
                     caption=caption_pembuka, 
@@ -81,7 +78,6 @@ async def gas_download(platform, drama_id):
                 )
             except Exception as e:
                 print(f"⚠️ Gagal kirim poster: {e}")
-                # Pake await
                 msg = await client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
             finally:
                 if os.path.exists(poster_path): os.remove(poster_path)
@@ -104,21 +100,29 @@ async def gas_download(platform, drama_id):
         v_url = (ep.get('raw') or {}).get('videoUrl') or ep.get('videoUrl')
         if not v_url: continue
 
+        # NAMA FILE UNTUK VIDEO DAN THUMBNAIL
         v_file = f"temp_{drama_id}_{data['episodes'].index(ep)}.mp4"
+        thumb_path = f"thumb_{drama_id}_{data['episodes'].index(ep)}.jpg" 
         
         print(f"📥 Download {ep_name}...")
         try:
             download_file(v_url, v_file)
             w, h, dur = get_video_info(v_file)
             
+            # 👇 GENERATE THUMBNAIL (Uncomment kalau di utils.py ada fungsinya)
+            try:
+                generate_thumbnail(v_file, thumb_path)
+            except:
+                print("⚠️ Gagal generate thumbnail, skip.")
+
             print(f"📤 Uploading {ep_name}...")
             
-            # INI DIA YANG BIKIN ERROR TADI
-            # Sekarang aman karena ada di dalam async def
             async with client.action(GROUP_ID, 'video', reply_to=topic_id):
                 await client.send_file(
                     GROUP_ID, 
-                    v_file, 
+                    v_file,
+                    # 👇 PASANG THUMB DISINI
+                    thumb=thumb_path if os.path.exists(thumb_path) else None,
                     caption=f"🎬 **{title}**\n📌 {ep_name}", 
                     reply_to=topic_id, 
                     supports_streaming=True, 
@@ -138,15 +142,14 @@ async def gas_download(platform, drama_id):
         except Exception as e:
             print(f"⚠️ Gagal upload {ep_name}: {e}")
         finally:
+            # 👇 BERSIH-BERSIH FILE
             if os.path.exists(v_file): os.remove(v_file)
+            if os.path.exists(thumb_path): os.remove(thumb_path)
         
-        # Jeda dikit
         time.sleep(1) 
 
 if __name__ == "__main__":
     init_db()
     p = input("Platform: "); i = input("ID: ")
     if p and i:
-        # PERUBAHAN 3: Cara jalaninnya beda dikit
-        # Karena fungsinya async, harus dipanggil lewat loop
         client.loop.run_until_complete(gas_download(p, i))
