@@ -78,16 +78,30 @@ def gas_download(platform, drama_id):
             for idx, ep in enumerate(batch, start=start_num):
                 v_url = None
                 
-                # --- TEKNIK 1: BONGKAR CDNLIST (Khas Dramabox) ---
+                # --- TEKNIK 1: BONGKAR CDNLIST (Deep Nested Dramabox) ---
                 cdn_data = ep.get('cdnList')
                 if cdn_data and isinstance(cdn_data, list) and len(cdn_data) > 0:
-                    # Biasanya link ada di urutan pertama
-                    item = cdn_data[0]
-                    if isinstance(item, str):
-                        v_url = item # Kalau isinya langsung link text
-                    elif isinstance(item, dict):
-                        v_url = item.get('url') or item.get('path') # Kalau isinya object
-                
+                    # 1. Masuk ke Provider Pertama
+                    provider = cdn_data[0]
+                    # 2. Ambil List Video
+                    v_list = provider.get('videoPathList')
+                    
+                    if v_list and isinstance(v_list, list):
+                        # 3. Cari URL (Prioritas 720p biar aman)
+                        for vid in v_list:
+                            # Cek validitas
+                            path = vid.get('videoPath')
+                            if not path: continue
+                            
+                            # Prioritas ambil 720p (IsDefault biasanya)
+                            if vid.get('quality') == 720:
+                                v_url = path
+                                break
+                        
+                        # Kalau 720p gak nemu, ambil yang pertama aja (bebas)
+                        if not v_url and len(v_list) > 0:
+                            v_url = v_list[0].get('videoPath')
+
                 # --- TEKNIK 2: CARI DI KEY LAIN (Cadangan) ---
                 if not v_url:
                     v_url = (
@@ -98,10 +112,9 @@ def gas_download(platform, drama_id):
                         ep.get('downloadUrl')
                     )
 
-                # --- MODE MATA-MATA V2 (DEBUG ISI CDN) ---
+                # --- DEBUG (Hanya kalo masih gagal) ---
                 if not v_url and idx == start_num:
-                    print(f"⚠️ ZONK LAGI di Eps {idx}!")
-                    print(f"📦 Isi cdnList: {cdn_data}") # Kita intip isinya apa
+                    print(f"⚠️ MASIH ZONK di Eps {idx} (Struktur berubah lagi?)")
                 
                 if not v_url: continue
                 
@@ -113,6 +126,7 @@ def gas_download(platform, drama_id):
             if not temp_files: 
                 print(f"❌ Batch {batch_label} Kosong (Gagal download semua).")
                 continue
+
 
             # Gabungkan dengan FFmpeg
             with open("list.txt", "w") as f:
