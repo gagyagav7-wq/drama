@@ -25,12 +25,11 @@ def gas_download(platform, drama_id):
     title = data['title'] or f"Drama_{drama_id}"
     print(f"🎬 MEMPROSES: {title}")
 
-    # 2. LOGIKA SMART TOPIC (FOLDER MATCHING)
+    # 1. CARI FOLDER (TOPIC) LAMA
     topic_id = None
     is_new_topic = False
 
     try:
-        # Cek folder lama dulu biar gak dobel
         r = client(functions.channels.GetForumTopicsRequest(channel=GROUP_ID, offset_date=0, offset_id=0, offset_topic=0, limit=100))
         for t in r.topics:
             if hasattr(t, 'title') and t.title.strip() == title.strip():
@@ -39,36 +38,7 @@ def gas_download(platform, drama_id):
                 break
     except: pass
 
-    if not topic_id:
-        try:
-            result = client(functions.channels.CreateForumTopicRequest(channel=GROUP_ID, title=title))
-            topic_id = result.updates[0].id
-            is_new_topic = True
-            print(f"📁 Folder baru: {title}")
-        except Exception as e:
-            print(f"❌ Gagal bikin folder: {e}"); return
-
-    # 3. KIRIM PESAN PEMBUKA ESTETIK (Sesuai Foto Lu)
-    if is_new_topic:
-        # Susun caption persis kayak foto yang lu mau
-        caption_pembuka = (
-            f"🎬 **{title}**\n\n"
-            f"📝 **Sinopsis:**\n{data['desc']}\n\n"
-            f"📊 **Total: {data['total_eps']} Episode**\n"
-            f"🚀 #Platform_{platform.upper()}"
-        )
-        
-        try:
-            if data['poster']:
-                client.send_file(GROUP_ID, data['poster'], caption=caption_pembuka, reply_to=topic_id)
-            else:
-                client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
-        except Exception as e:
-            print(f"⚠️ Poster gagal, kirim teks aja: {e}")
-            client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
-
-
-    # 2. Kalau beneran nggak nemu, baru bikin baru
+    # 2. BIKIN FOLDER BARU JIKA TIDAK ADA
     if not topic_id:
         try:
             result = client(functions.channels.CreateForumTopicRequest(channel=GROUP_ID, title=title))
@@ -76,25 +46,33 @@ def gas_download(platform, drama_id):
             is_new_topic = True
             print(f"📁 Folder baru dibuat: {title}")
         except Exception as e:
-            print(f"❌ Gagal total bikin folder: {e}")
+            print(f"❌ Gagal bikin folder: {e}")
             return
 
-    # 3. Kirim Poster & Sinopsis HANYA jika foldernya beneran baru
+    # 3. KIRIM PESAN PEMBUKA (ESTETIK + AUTO PIN)
     if is_new_topic:
-        cap = f"🎬 **{title}**\n\n📝 **Sinopsis:**\n{data['desc']}\n\n#Platform_{platform.upper()}"
+        caption_pembuka = (
+            f"🎬 **{title}**\n\n"
+            f"📝 **Sinopsis:**\n{data['desc']}\n\n"
+            f"📊 **Total: {data.get('total_eps', len(data['episodes']))} Episode**\n"
+            f"🚀 #Platform_{platform.upper()}"
+        )
         try:
             if data['poster']:
-                client.send_file(GROUP_ID, data['poster'], caption=cap, reply_to=topic_id)
+                msg = client.send_file(GROUP_ID, data['poster'], caption=caption_pembuka, reply_to=topic_id)
             else:
-                client.send_message(GROUP_ID, cap, reply_to=topic_id)
-        except:
-            client.send_message(GROUP_ID, cap, reply_to=topic_id)
+                msg = client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
+            
+            # Pin pesan pembuka biar kayak pro
+            client.pin_message(GROUP_ID, msg.id)
+        except Exception as e:
+            print(f"⚠️ Gagal kirim/pin poster: {e}")
+            client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
 
-    # --- UPLOAD VIDEO ---
+    # 4. PROSES UPLOAD VIDEO
     for ep in data['episodes']:
         ep_name = ep.get('name') or ep.get('title') or f"Eps {data['episodes'].index(ep)+1}"
         
-        # Cek database history (Biar nggak dobel upload)
         if is_duplicate(platform, drama_id, ep_name):
             print(f"⏭️ SKIP: {ep_name}")
             continue
@@ -107,7 +85,7 @@ def gas_download(platform, drama_id):
         try:
             download_file(v_url, v_file)
             w, h, dur = get_video_info(v_file)
-            print(f"📤 Uploading {ep_name} to Topic {topic_id}...")
+            print(f"📤 Uploading {ep_name}...")
             client.send_file(
                 GROUP_ID, v_file, 
                 caption=f"🎬 **{title}**\n📌 {ep_name}", 
@@ -127,3 +105,4 @@ if __name__ == "__main__":
     init_db()
     p = input("Platform: "); i = input("ID: ")
     if p and i: gas_download(p, i)
+        
