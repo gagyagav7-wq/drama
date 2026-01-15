@@ -25,23 +25,48 @@ def gas_download(platform, drama_id):
     title = data['title'] or f"Drama_{drama_id}"
     print(f"🎬 MEMPROSES: {title}")
 
-    # --- SMART TOPIC (FOLDER MATCHING) ---
+    # 2. LOGIKA SMART TOPIC (FOLDER MATCHING)
     topic_id = None
     is_new_topic = False
 
-    # 1. Coba cari folder yang sudah ada dulu secara teliti
     try:
-        # Ambil 100 topik terbaru
-        r = client(functions.channels.GetForumTopicsRequest(
-            channel=GROUP_ID, offset_date=0, offset_id=0, offset_topic=0, limit=100
-        ))
+        # Cek folder lama dulu biar gak dobel
+        r = client(functions.channels.GetForumTopicsRequest(channel=GROUP_ID, offset_date=0, offset_id=0, offset_topic=0, limit=100))
         for t in r.topics:
             if hasattr(t, 'title') and t.title.strip() == title.strip():
                 topic_id = t.id
-                print(f"♻️ Menemukan folder lama (ID: {topic_id}), melanjutkan...")
+                print(f"♻️ Lanjut di folder: {title}")
                 break
-    except Exception as e:
-        print(f"⚠️ Gagal scanning folder: {e}")
+    except: pass
+
+    if not topic_id:
+        try:
+            result = client(functions.channels.CreateForumTopicRequest(channel=GROUP_ID, title=title))
+            topic_id = result.updates[0].id
+            is_new_topic = True
+            print(f"📁 Folder baru: {title}")
+        except Exception as e:
+            print(f"❌ Gagal bikin folder: {e}"); return
+
+    # 3. KIRIM PESAN PEMBUKA ESTETIK (Sesuai Foto Lu)
+    if is_new_topic:
+        # Susun caption persis kayak foto yang lu mau
+        caption_pembuka = (
+            f"🎬 **{title}**\n\n"
+            f"📝 **Sinopsis:**\n{data['desc']}\n\n"
+            f"📊 **Total: {data['total_eps']} Episode**\n"
+            f"🚀 #Platform_{platform.upper()}"
+        )
+        
+        try:
+            if data['poster']:
+                client.send_file(GROUP_ID, data['poster'], caption=caption_pembuka, reply_to=topic_id)
+            else:
+                client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
+        except Exception as e:
+            print(f"⚠️ Poster gagal, kirim teks aja: {e}")
+            client.send_message(GROUP_ID, caption_pembuka, reply_to=topic_id)
+
 
     # 2. Kalau beneran nggak nemu, baru bikin baru
     if not topic_id:
