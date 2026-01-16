@@ -207,6 +207,40 @@ def gas_download(platform, drama_id):
 
 if __name__ == "__main__":
     init_db()
-    p = input("\n📡 Platform (dramabox/netshort): ")
-    i = input("🆔 ID Drama: ")
-    if p and i: gas_download(p, i)
+    
+    # --- MENU PILIHAN GANTENG ---
+    os.system('cls' if os.name == 'nt' else 'clear') # Bersihin layar biar rapi
+    print("\n" + "═"*35)
+    print("   🔥 DRAMA DOWNLOADER BOT V2 🔥")
+    print("═"*35)
+    print("  [1] 📦 DRAMABOX")
+    print("  [2] 🎬 NETSHORT")
+    print("  [3] 🎞️ FLICKREELS")
+    print("═"*35)
+    
+    choice = input("👉 Pilih Nomor (1-3): ").strip()
+    
+    # Mapping Pilihan
+    platform_map = {
+        '1': 'dramabox',
+        '2': 'netshort',
+        '3': 'flickreels'
+    }
+    
+    selected_platform = platform_map.get(choice)
+    
+    if not selected_platform:
+        print("\n❌ Pilihan ngawur Cok! Pilih 1, 2, atau 3 aja.")
+        exit()
+        
+    print(f"✅ Mode Terpilih: {selected_platform.upper()}")
+    
+    # Input ID
+    print("-" * 35)
+    drama_id = input("🆔 Masukkan ID / Slug Drama: ").strip()
+    
+    if drama_id:
+        gas_download(selected_platform, drama_id)
+    else:
+        print("❌ ID kosong! Isi dulu lah.")
+        
