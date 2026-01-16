@@ -97,7 +97,7 @@ def gas_download(platform, drama_id):
     # ======================================================
     # 3. PROSES BATCH DOWNLOAD
     # ======================================================
-    batch_size = 10
+    batch_size = 50
     all_eps = data['episodes']
     
     for i in range(0, len(all_eps), batch_size):
