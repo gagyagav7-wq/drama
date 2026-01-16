@@ -99,8 +99,8 @@ def gas_download(platform, drama_id):
             print(f"⚠️ Gagal kirim pinned message: {e}")
 
     # 5. PROSES BATCH DOWNLOAD (50 EPS)
-    batch_size = 50
     all_eps = data['episodes']
+    batch_size = len(all_eps) 
     
     try:
         for i in range(0, len(all_eps), batch_size):
