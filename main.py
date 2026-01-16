@@ -18,34 +18,44 @@ GROUP_ID = int(os.getenv('GROUP_ID'))
 client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 def cleanup_files(files):
-    """Fungsi bersih-bersih file sampah"""
+    """Bersih-bersih file sementara"""
     for f in files:
         if os.path.exists(f):
             try: os.remove(f)
             except: pass
 
 def gas_download(platform, drama_id):
-    # Ambil Data
+    # 1. AMBIL DATA
     data = get_drama_data(platform, drama_id)
     if not data or not data['episodes']:
-        print("❌ Data tidak ditemukan atau Episode kosong!")
+        print("❌ Data error atau Episode kosong!")
         return
 
-    # Ambil Info Drama
+    # Ambil Info Lengkap
     title = data['title']
-    poster = data['poster']
+    poster_url = data['poster'] # URL Poster
     desc = data['desc']
+    tags = data['tags'] # Genre
     total_eps = data.get('total_eps', len(data['episodes']))
     
-    # Bersihin Judul
+    # Nama aman buat file
     safe_title = "".join([c for c in title if c.isalnum() or c in " -_"]).strip()
     
     print(f"\n🎬 MEMPROSES: {title}")
+    print(f"🏷️ Genre: {tags}")
     print(f"📊 Total: {total_eps} Episode")
 
-    # ======================================================
-    # 1. SETUP FOLDER TOPIC
-    # ======================================================
+    # 2. DOWNLOAD POSTER (Sekali di awal, dipake terus)
+    poster_path = "poster.jpg"
+    has_poster = False
+    if poster_url and "http" in poster_url:
+        try:
+            download_file(poster_url, poster_path)
+            has_poster = True
+        except:
+            print("⚠️ Gagal download poster (lanjut tanpa thumbnail)")
+
+    # 3. SETUP FOLDER TOPIC
     topic_id = None
     is_new_topic = False
     
@@ -67,128 +77,126 @@ def gas_download(platform, drama_id):
         except Exception as e:
             print(f"❌ Gagal bikin folder: {e}"); return
 
-    # ======================================================
-    # 2. KIRIM POSTER UTAMA (TANPA ID)
-    # ======================================================
+    # 4. KIRIM PINNED MESSAGE (Cuma kalau folder baru)
     if is_new_topic:
-        # Perhatikan: Bagian ID udah gue HAPUS di sini
         caption_poster = (
             f"📽️ **{title}**\n"
             f"──────────────────\n\n"
             f"📚 **SINOPSIS**\n"
             f"_{desc}_\n\n"
-            f"🏷️ **Genre:** Drama, Romance\n"
+            f"🏷️ **Genre:** {tags}\n"
             f"📊 **Total:** {total_eps} Episode\n"
             f"🚀 **Platform:** #{platform.upper()}"
         )
         try:
-            if poster and "http" in poster:
-                poster_file = "poster.jpg"
-                download_file(poster, poster_file)
-                msg = client.send_file(GROUP_ID, poster_file, caption=caption_poster, reply_to=topic_id)
-                os.remove(poster_file)
+            if has_poster:
+                msg = client.send_file(GROUP_ID, poster_path, caption=caption_poster, reply_to=topic_id)
             else:
                 msg = client.send_message(GROUP_ID, caption_poster, reply_to=topic_id)
             
             client.pin_message(GROUP_ID, msg.id, notify=True)
-        except Exception as e:
-            print(f"⚠️ Gagal kirim poster: {e}")
+        except Exception as e: 
+            print(f"⚠️ Gagal kirim pinned message: {e}")
 
-    # ======================================================
-    # 3. PROSES BATCH DOWNLOAD
-    # ======================================================
+    # 5. PROSES BATCH DOWNLOAD (50 EPS)
     batch_size = 50
     all_eps = data['episodes']
     
-    for i in range(0, len(all_eps), batch_size):
-        batch = all_eps[i:i + batch_size]
-        start_num = i + 1
-        end_num = i + len(batch)
-        
-        batch_label = f"Eps {start_num:02d}-{end_num:02d}"
-        history_key = f"{title} {batch_label}"
-        
-        if is_duplicate(platform, drama_id, history_key):
-            print(f"⏭️ SKIP: {batch_label} (Udah ada)")
-            continue
-
-        print(f"📦 Mengolah {batch_label}...")
-        temp_files = []
-        output_file = f"{safe_title} - {batch_label}.mp4"
-        
-        try:
-            # STEP A: DOWNLOAD
-            for idx, ep in enumerate(batch, start=start_num):
-                v_url = None
-                
-                # Logic CDN Hunter (Dramabox)
-                cdn_data = ep.get('cdnList')
-                if cdn_data and isinstance(cdn_data, list) and len(cdn_data) > 0:
-                    provider = cdn_data[0]
-                    v_list = provider.get('videoPathList')
-                    if v_list and isinstance(v_list, list):
-                        for vid in v_list:
-                            if vid.get('quality') == 720: 
-                                v_url = vid.get('videoPath')
-                                break
-                        if not v_url and len(v_list) > 0: v_url = v_list[0].get('videoPath')
-
-                # Logic Umum
-                if not v_url:
-                    v_url = (ep.get('url') or ep.get('videoUrl') or ep.get('playUrl') or ep.get('link') or ep.get('downloadUrl'))
-
-                if v_url:
-                    fn = f"temp_{idx}.mp4"
-                    print(f"   ⬇️ Download Part {idx}...")
-                    download_file(v_url, fn)
-                    temp_files.append(fn)
-
-            if not temp_files:
-                print("   ❌ Gagal download batch ini.")
+    try:
+        for i in range(0, len(all_eps), batch_size):
+            batch = all_eps[i:i + batch_size]
+            start_num = i + 1
+            end_num = i + len(batch)
+            
+            batch_label = f"Eps {start_num:02d}-{end_num:02d}"
+            history_key = f"{title} {batch_label}"
+            
+            if is_duplicate(platform, drama_id, history_key):
+                print(f"⏭️ SKIP: {batch_label} (Udah ada)")
                 continue
 
-            # STEP B: MERGE
-            with open("list.txt", "w") as f:
-                for tf in temp_files: f.write(f"file '{tf}'\n")
+            print(f"📦 Mengolah {batch_label}...")
+            temp_files = []
+            output_file = f"{safe_title} - {batch_label}.mp4"
             
-            print(f"   🔗 Menggabungkan {len(temp_files)} video...")
-            os.system(f"ffmpeg -f concat -safe 0 -i list.txt -c copy -v quiet -stats \"{output_file}\" -y")
+            try:
+                # --- STEP A: DOWNLOAD PER PART ---
+                for idx, ep in enumerate(batch, start=start_num):
+                    v_url = None
+                    # Logika CDN Hunter (Dramabox)
+                    cdn_data = ep.get('cdnList')
+                    if cdn_data and isinstance(cdn_data, list) and len(cdn_data) > 0:
+                        provider = cdn_data[0]
+                        v_list = provider.get('videoPathList')
+                        if v_list and isinstance(v_list, list):
+                            for vid in v_list:
+                                if vid.get('quality') == 720: 
+                                    v_url = vid.get('videoPath'); break
+                            if not v_url and len(v_list) > 0: v_url = v_list[0].get('videoPath')
 
-            # STEP C: UPLOAD
-            if os.path.exists(output_file):
-                print(f"   🚀 Uploading {output_file}...")
-                w, h, dur = get_video_info(output_file)
+                    # Logika Umum
+                    if not v_url: 
+                        v_url = (ep.get('url') or ep.get('videoUrl') or ep.get('playUrl') or ep.get('link') or ep.get('downloadUrl'))
+
+                    if v_url:
+                        fn = f"temp_{idx}.mp4"
+                        print(f"   ⬇️ Part {idx}...")
+                        download_file(v_url, fn)
+                        temp_files.append(fn)
+
+                if not temp_files:
+                    print("   ❌ Gagal download batch ini.")
+                    continue
+
+                # --- STEP B: MERGE ---
+                with open("list.txt", "w") as f:
+                    for tf in temp_files: f.write(f"file '{tf}'\n")
                 
-                # Caption Video (Juga Bersih Tanpa ID)
-                caption_video = (
-                    f"🎬 **{title}**\n"
-                    f"📼 **{batch_label}**\n"
-                    f"──────────────────\n"
-                    f"⚙️ **Res:** {w}x{h} px\n"
-                    f"⏱️ **Dur:** {dur // 60} Menit\n"
-                    f"✨ *Selamat Menonton!*"
-                )
+                print(f"   🔗 Menggabungkan {len(temp_files)} video...")
+                os.system(f"ffmpeg -f concat -safe 0 -i list.txt -c copy -v quiet -stats \"{output_file}\" -y")
 
-                client.send_file(
-                    GROUP_ID, 
-                    output_file, 
-                    caption=caption_video,
-                    reply_to=topic_id,
-                    supports_streaming=True,
-                    thumb=poster_file if os.path.exists("poster.jpg") else None, 
-                    attributes=[DocumentAttributeVideo(duration=dur, w=w, h=h, supports_streaming=True)]
-                )
-                
-                save_history(platform, drama_id, history_key)
-                print(f"   ✅ Selesai: {batch_label}")
+                # --- STEP C: UPLOAD ---
+                if os.path.exists(output_file):
+                    print(f"   🚀 Uploading {output_file}...")
+                    w, h, dur = get_video_info(output_file)
+                    
+                    caption_video = (
+                        f"🎬 **{title}**\n"
+                        f"📼 **{batch_label}**\n"
+                        f"──────────────────\n"
+                        f"⚙️ **Res:** {w}x{h} px\n"
+                        f"⏱️ **Dur:** {dur // 60} Menit\n"
+                        f"✨ *Selamat Menonton!*"
+                    )
 
-        except Exception as e:
-            print(f"   ⚠️ Error Batch {batch_label}: {e}")
-        
-        finally:
-            cleanup_files(temp_files + ["list.txt", output_file])
+                    # Kunci Fix Thumbnail: Pake poster_path yang udah didownload di awal
+                    thumb_to_use = poster_path if has_poster and os.path.exists(poster_path) else None
+
+                    client.send_file(
+                        GROUP_ID, 
+                        output_file, 
+                        caption=caption_video,
+                        reply_to=topic_id,
+                        supports_streaming=True,
+                        thumb=thumb_to_use, 
+                        attributes=[DocumentAttributeVideo(duration=dur, w=w, h=h, supports_streaming=True)]
+                    )
+                    
+                    save_history(platform, drama_id, history_key)
+                    print(f"   ✅ Selesai: {batch_label}")
+
+            except Exception as e:
+                print(f"   ⚠️ Error Batch {batch_label}: {e}")
             
-        time.sleep(2)
+            finally:
+                # Hapus file video sementara, TAPI JANGAN hapus poster.jpg dulu
+                cleanup_files(temp_files + ["list.txt", output_file])
+                time.sleep(2)
+    
+    finally:
+        # Hapus poster pas SEMUA batch udah kelar
+        if has_poster and os.path.exists(poster_path):
+            os.remove(poster_path)
 
 if __name__ == "__main__":
     init_db()
@@ -214,4 +222,4 @@ if __name__ == "__main__":
     
     if drama_id: gas_download(selected_platform, drama_id)
     else: print("❌ ID kosong!")
-                
+    
