@@ -16,11 +16,10 @@ def get_drama_data(platform, drama_id):
 
     try:
         # ==========================================
-        # 1. KHUSUS DRAMABOX (JURUS DOUBLE HIT V2)
+        # 1. KHUSUS DRAMABOX (METADATA + VIDEO)
         # ==========================================
         if platform == 'dramabox':
-            # STEP A: Ambil Metadata (Judul, Poster, Sinopsis)
-            # URL ini sesuai temuan lu tadi
+            # STEP A: Ambil Metadata (Judul, Poster, Sinopsis, Genre)
             try:
                 meta_url = f"{BASE_URL}/dramabox/detail?bookId={drama_id}"
                 print(f"✨ Mengintip Metadata: {meta_url}")
@@ -28,27 +27,37 @@ def get_drama_data(platform, drama_id):
                 
                 if meta_res.status_code == 200:
                     meta_data = meta_res.json()
-                    # --- BAGIAN PENTING YANG DI-FIX ---
+                    
                     # 1. Judul
                     drama_info['title'] = (
                         meta_data.get('bookName') or 
                         meta_data.get('data', {}).get('bookName')
                     )
-                    # 2. Poster (Nah ini dia biang keroknya!)
+                    
+                    # 2. Poster (Support coverWap)
                     drama_info['poster'] = (
-                        meta_data.get('coverWap') or  # <--- INI KUNCI UTAMANYA
+                        meta_data.get('coverWap') or 
                         meta_data.get('cover') or 
                         meta_data.get('data', {}).get('coverWap')
                     )
+                    
                     # 3. Sinopsis
                     drama_info['desc'] = (
-                        meta_data.get('introduction') or # <--- INI JUGA
+                        meta_data.get('introduction') or 
                         meta_data.get('desc') or
                         meta_data.get('data', {}).get('introduction')
                     )
+
+                    # 4. Genre / Tags (BARU)
+                    tags_raw = meta_data.get('tagList') or meta_data.get('data', {}).get('tagList')
+                    genre_list = []
+                    if tags_raw and isinstance(tags_raw, list):
+                        for t in tags_raw:
+                            name = t.get('tagName') or t.get('name')
+                            if name: genre_list.append(name)
                     
-                    if drama_info['title']:
-                        print(f"   ✅ Dapet Info: {drama_info['title']}")
+                    drama_info['tags'] = ", ".join(genre_list) if genre_list else "Drama"
+
             except Exception as e:
                 print(f"⚠️ Gagal ambil metadata: {e}")
 
@@ -82,6 +91,7 @@ def get_drama_data(platform, drama_id):
             if res.status_code == 200:
                 data_json = res.json()
                 
+                # Parsing Netshort
                 if platform == 'netshort':
                     if isinstance(data_json, list):
                         episodes = data_json
@@ -93,36 +103,42 @@ def get_drama_data(platform, drama_id):
                         drama_info['title'] = first.get('dramaTitle') or first.get('shortPlayName')
                         drama_info['poster'] = first.get('cover') or first.get('shortPlayCover')
                         drama_info['desc'] = first.get('desc')
+                        drama_info['tags'] = first.get('dramaType') or "Drama" # Ambil Genre
+                
+                # Parsing Flickreels/Lainnya
                 else:
                     root = data_json.get('data', data_json)
                     episodes = root.get('episodes') or root.get('episode_list') or root.get('chapters') or []
                     drama_info['title'] = root.get('title') or root.get('name')
                     drama_info['poster'] = root.get('poster') or root.get('cover') or root.get('vertical_cover')
                     drama_info['desc'] = root.get('desc') or root.get('description')
+                    drama_info['tags'] = root.get('tags') or "Drama"
 
         # ==========================================
-        # 3. FINALISASI
+        # 3. FINALISASI DATA
         # ==========================================
         if not episodes:
             print("❌ GAGAL: Episode tidak ditemukan.")
             return None
 
+        # Fallback Data (Kalau kosong diisi default)
         final_title = drama_info.get('title') or f"{platform.upper()}_{drama_id}"
         
-        # Fallback Poster kalau masih zonk
         final_poster = (
             drama_info.get('poster') or 
             "https://i.ibb.co/GtpCNh6/default-poster.jpg"
         )
         
         final_desc = drama_info.get('desc') or "Sinopsis belum tersedia."
+        final_tags = drama_info.get('tags') or "Drama, Romance"
 
-        print(f"✅ SUKSES: {final_title} | Total: {len(episodes)} Eps")
+        print(f"✅ SUKSES: {final_title} | Genre: {final_tags} | Total: {len(episodes)} Eps")
 
         return {
             'title': final_title,
             'poster': final_poster,
             'desc': final_desc,
+            'tags': final_tags,
             'episodes': episodes,
             'total_eps': len(episodes)
         }
@@ -130,4 +146,3 @@ def get_drama_data(platform, drama_id):
     except Exception as e:
         print(f"❌ Error System ({platform}): {e}")
         return None
-        
