@@ -4,7 +4,7 @@ from telethon.sync import TelegramClient
 from telethon import functions, types
 from telethon.tl.types import DocumentAttributeVideo
 from database import init_db, is_duplicate, save_history
-from utils import get_video_info, download_file
+from utils import get_video_info, download_file, generate_thumbnail
 from api_handler import get_drama_data
 
 # Load environment variables
@@ -98,7 +98,7 @@ def gas_download(platform, drama_id):
         except Exception as e: 
             print(f"⚠️ Gagal kirim pinned message: {e}")
 
-    # 5. PROSES BATCH DOWNLOAD (50 EPS)
+    # 5. PROSES BATCH DOWNLOAD (FULL MOVIE)
     all_eps = data['episodes']
     batch_size = len(all_eps) 
     
@@ -108,7 +108,8 @@ def gas_download(platform, drama_id):
             start_num = i + 1
             end_num = i + len(batch)
             
-            batch_label = f"Eps {start_num:02d}-{end_num:02d}"
+            # Label dipercantik dikit
+            batch_label = f"FULL MOVIE (Eps {start_num}-{end_num})"
             history_key = f"{title} {batch_label}"
             
             if is_duplicate(platform, drama_id, history_key):
@@ -118,31 +119,39 @@ def gas_download(platform, drama_id):
             print(f"📦 Mengolah {batch_label}...")
             temp_files = []
             output_file = f"{safe_title} - {batch_label}.mp4"
+            thumb_video = "thumb.jpg"
             
             try:
-                # --- STEP A: DOWNLOAD PER PART ---
+                # --- STEP A: DOWNLOAD PER PART (LOGIKA 1080p SULTAN) ---
                 for idx, ep in enumerate(batch, start=start_num):
                     v_url = None
-                    # Logika CDN Hunter (Dramabox)
+                    
+                    # Logika CDN Hunter (Dramabox 1080p)
                     cdn_data = ep.get('cdnList')
-                    if cdn_data and isinstance(cdn_data, list) and len(cdn_data) > 0:
-                        provider = cdn_data[0]
-                        v_list = provider.get('videoPathList')
-                        if v_list and isinstance(v_list, list):
-                            for vid in v_list:
-                                if vid.get('quality') == 720: 
-                                    v_url = vid.get('videoPath'); break
-                            if not v_url and len(v_list) > 0: v_url = v_list[0].get('videoPath')
+                    if platform == 'dramabox' and cdn_data and isinstance(cdn_data, list):
+                        for provider in cdn_data:
+                            v_list = provider.get('videoPathList') or []
+                            # SORTIR: Angka Besar (1080) ke Kecil. Jadi otomatis ambil yang paling gede.
+                            v_list.sort(key=lambda x: x.get('quality', 0), reverse=True)
+                            if v_list:
+                                v_url = v_list[0].get('videoPath')
+                                break
+                    
+                    # Logika Netshort/Flickreels (Link udah mateng dari api_handler)
+                    if not v_url:
+                        v_url = ep.get('videoUrl')
 
-                    # Logika Umum
+                    # Logika Umum (Fallback)
                     if not v_url: 
-                        v_url = (ep.get('url') or ep.get('videoUrl') or ep.get('playUrl') or ep.get('link') or ep.get('downloadUrl'))
+                        v_url = (ep.get('url') or ep.get('playUrl') or ep.get('link') or ep.get('downloadUrl'))
 
                     if v_url:
                         fn = f"temp_{idx}.mp4"
                         print(f"   ⬇️ Part {idx}...")
                         download_file(v_url, fn)
                         temp_files.append(fn)
+                    else:
+                        print(f"   ⚠️ Link video kosong Part {idx}")
 
                 if not temp_files:
                     print("   ❌ Gagal download batch ini.")
@@ -169,8 +178,15 @@ def gas_download(platform, drama_id):
                         f"✨ *Selamat Menonton!*"
                     )
 
-                    # Kunci Fix Thumbnail: Pake poster_path yang udah didownload di awal
-                    thumb_to_use = poster_path if has_poster and os.path.exists(poster_path) else None
+                    # LOGIKA THUMBNAIL UPGRADE
+                    # 1. Prioritas Poster (Kalau ada)
+                    thumb_to_use = None
+                    if has_poster and os.path.exists(poster_path):
+                        thumb_to_use = poster_path
+                    # 2. Kalau Poster Gagal, Bikin sendiri dari video (Fitur Baru)
+                    else:
+                        generate_thumbnail(output_file, thumb_video)
+                        if os.path.exists(thumb_video): thumb_to_use = thumb_video
 
                     client.send_file(
                         GROUP_ID, 
@@ -189,8 +205,8 @@ def gas_download(platform, drama_id):
                 print(f"   ⚠️ Error Batch {batch_label}: {e}")
             
             finally:
-                # Hapus file video sementara, TAPI JANGAN hapus poster.jpg dulu
-                cleanup_files(temp_files + ["list.txt", output_file])
+                # Hapus file video sementara & thumbnail generate
+                cleanup_files(temp_files + ["list.txt", output_file, thumb_video])
                 time.sleep(2)
     
     finally:
@@ -204,9 +220,9 @@ if __name__ == "__main__":
     print("\n" + "═"*35)
     print("   🔥 DRAMA DOWNLOADER BOT V2 🔥")
     print("═"*35)
-    print("  [1] 📦 DRAMABOX")
-    print("  [2] 🎬 NETSHORT")
-    print("  [3] 🎞️ FLICKREELS")
+    print("  [1] 📦 DRAMABOX (Auto 1080p)")
+    print("  [2] 🎬 NETSHORT (Auto 1080p)")
+    print("  [3] 🎞️ FLICKREELS (Auto HD)")
     print("═"*35)
     
     choice = input("👉 Pilih Nomor (1-3): ").strip()
@@ -222,4 +238,3 @@ if __name__ == "__main__":
     
     if drama_id: gas_download(selected_platform, drama_id)
     else: print("❌ ID kosong!")
-    
