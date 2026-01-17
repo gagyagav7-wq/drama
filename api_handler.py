@@ -39,9 +39,7 @@ def get_drama_data(platform, drama_id):
                             name = t.get('tagName') or t.get('name')
                             if name: genre_list.append(name)
                     drama_info['tags'] = ", ".join(genre_list) if genre_list else "Drama"
-
-            except Exception as e:
-                print(f"⚠️ Gagal ambil metadata Dramabox: {e}")
+            except: pass
 
             video_url = f"{BASE_URL}/dramabox/allepisode?bookId={drama_id}"
             print(f"👉 Mengambil Video: {video_url}")
@@ -53,7 +51,7 @@ def get_drama_data(platform, drama_id):
                 elif isinstance(data, dict): episodes = data.get('data') or []
 
         # ==========================================
-        # 2. NETSHORT (UPDATE STRUKTUR BARU) 🛠️
+        # 2. KHUSUS NETSHORT (SESUAI DATA BARU LU) ✅
         # ==========================================
         elif platform == 'netshort':
             url = f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"
@@ -64,12 +62,12 @@ def get_drama_data(platform, drama_id):
             if res.status_code == 200:
                 data_json = res.json()
                 
-                # --- LOGIKA BARU: Cek Struktur 'shortPlayEpisodeInfos' ---
+                # --- LOGIKA BARU: Cek Kunci 'shortPlayEpisodeInfos' ---
                 if isinstance(data_json, dict) and 'shortPlayEpisodeInfos' in data_json:
-                    print("✅ Terdeteksi Struktur Baru Netshort (shortPlayEpisodeInfos)")
+                    print("✅ YES! Struktur Netshort ditemukan.")
                     episodes = data_json['shortPlayEpisodeInfos']
                     
-                    # Ambil Metadata dari Root
+                    # Ambil Metadata (Langsung dari Root)
                     drama_info['title'] = data_json.get('shortPlayName')
                     drama_info['poster'] = data_json.get('shortPlayCover')
                     drama_info['desc'] = data_json.get('shotIntroduce')
@@ -81,56 +79,58 @@ def get_drama_data(platform, drama_id):
                     else:
                         drama_info['tags'] = str(labels)
 
-                    # 🔥 FIX LINK VIDEO: playVoucher -> videoUrl 🔥
-                    # Biar main.py bisa baca tanpa perlu diubah
+                    # 🔥 PENTERJEMAH: playVoucher -> videoUrl 🔥
+                    # Kita looping semua episode buat benerin kuncinya
                     for ep in episodes:
+                        # Translate link video
                         if 'playVoucher' in ep:
                             ep['videoUrl'] = ep['playVoucher']
+                        
+                        # Translate cover (opsional)
+                        if 'episodeCover' in ep:
+                            ep['cover'] = ep['episodeCover']
 
-                # --- LOGIKA LAMA (Fallback buat jaga-jaga) ---
-                elif isinstance(data_json, dict) and 'data' in data_json:
-                    episodes = data_json.get('data') or []
-                    if episodes and len(episodes) > 0:
-                        first = episodes[0]
-                        drama_info['title'] = first.get('dramaTitle')
-                        drama_info['poster'] = first.get('cover')
-                        drama_info['desc'] = first.get('desc')
-                        drama_info['tags'] = first.get('dramaType')
+                # --- LOGIKA FALLBACK (Buat jaga-jaga API lama) ---
+                elif isinstance(data_json, dict):
+                    # Coba cari di 'data'
+                    d = data_json.get('data')
+                    if d:
+                        if isinstance(d, list): episodes = d
+                        elif isinstance(d, dict): episodes = d.get('episodes') or []
+                        
+                        # Metadata Fallback
+                        if episodes and len(episodes) > 0:
+                            first = episodes[0]
+                            drama_info['title'] = first.get('dramaTitle')
+                            drama_info['tags'] = first.get('dramaType')
 
         # ==========================================
-        # 3. FLICKREELS / LAINNYA
+        # 3. LAINNYA
         # ==========================================
         else:
             url = f"{BASE_URL}/{platform}/{drama_id}"
-            if platform == 'flickreels':
-                url = f"{BASE_URL}/flickreels/{drama_id}"
-
+            if platform == 'flickreels': url = f"{BASE_URL}/flickreels/{drama_id}"
             print(f"👉 Request ke: {url}")
             res = requests.get(url, headers=headers, timeout=30)
-            
             if res.status_code == 200:
                 data_json = res.json()
                 root = data_json.get('data', data_json) if isinstance(data_json, dict) else data_json
-                
                 if root:
-                    episodes = root.get('episodes') or root.get('episode_list') or root.get('chapters') or []
+                    episodes = root.get('episodes') or root.get('episode_list') or []
                     drama_info['title'] = root.get('title') or root.get('name')
-                    drama_info['poster'] = root.get('poster') or root.get('cover') or root.get('vertical_cover')
-                    drama_info['desc'] = root.get('desc') or root.get('description')
-                    drama_info['tags'] = root.get('tags') or "Drama"
+                    drama_info['poster'] = root.get('poster') or root.get('cover')
 
         # ==========================================
-        # 4. FINALISASI DATA
+        # 4. FINALISASI
         # ==========================================
         if not episodes:
-            print("❌ GAGAL: Episode tidak ditemukan (List Kosong).")
+            print("❌ GAGAL: Episode tidak ditemukan/List Kosong.")
             return None
 
-        # Fallback Metadata
         final_title = drama_info.get('title') or f"{platform.upper()}_{drama_id}"
         final_poster = drama_info.get('poster') or "https://i.ibb.co/GtpCNh6/default-poster.jpg"
         final_desc = drama_info.get('desc') or "Sinopsis belum tersedia."
-        final_tags = drama_info.get('tags') or "Drama, Romance"
+        final_tags = drama_info.get('tags') or "Drama"
 
         print(f"✅ SUKSES: {final_title} | Genre: {final_tags} | Total: {len(episodes)} Eps")
 
@@ -146,4 +146,4 @@ def get_drama_data(platform, drama_id):
     except Exception as e:
         print(f"❌ Error System ({platform}): {e}")
         return None
-        
+                
