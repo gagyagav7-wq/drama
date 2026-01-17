@@ -1,40 +1,70 @@
 import os
 import requests
-import subprocess # <--- Wajib ada buat jalanin FFmpeg
-from hachoir.metadata import extractMetadata
-from hachoir.parser import createParser
+import subprocess
+import urllib3
+
+# 🔥 MATIIN WARNING SSL (Biar terminal lu bersih)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def get_video_info(file_path):
+    """
+    Ambil resolusi & durasi video pake FFprobe (Lebih akurat dari hachoir).
+    Gak perlu install library tambahan karena lu udah punya FFmpeg.
+    """
     try:
-        metadata = extractMetadata(createParser(file_path))
-        if metadata:
-            # Note: duration di hachoir kadang formatnya object, kita ambil seconds
-            return int(metadata.get('width')), int(metadata.get('height')), int(metadata.get('duration').seconds)
+        cmd = [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", file_path
+        ]
+        # Jalanin perintah di terminal background
+        output = subprocess.check_output(cmd).decode().strip().split("\n")
+        
+        if len(output) >= 2:
+            width = int(output[0])
+            height = int(output[1])
+            # Ambil durasi (kalau ada)
+            duration = int(float(output[2])) if len(output) > 2 else 0
+            return width, height, duration
+            
     except Exception as e:
-        print(f"⚠️ Warning Metadata: {e}")
+        print(f"⚠️ Gagal Info Video: {e}")
         pass
-    # Default kalau gagal detect
+        
+    # Default kalau gagal detect (misal file korup dikit)
     return 720, 1280, 0 
 
 def download_file(url, file_path):
+    """
+    Download file dengan Mode Streaming + ANTI SSL ERROR.
+    """
     try:
-        with requests.get(url, stream=True, timeout=60) as r: # Timeout dinaikin dikit biar aman
+        # verify=False <--- INI KUNCINYA BIAR GAK ERROR SSL
+        with requests.get(url, stream=True, timeout=60, verify=False) as r:
             r.raise_for_status()
             with open(file_path, "wb") as f:
-                for c in r.iter_content(1024*1024): 
-                    f.write(c)
+                # Download per 1MB biar kenceng
+                for chunk in r.iter_content(chunk_size=1024*1024): 
+                    if chunk: f.write(chunk)
         return True
     except Exception as e:
         print(f"❌ Gagal Download: {e}")
+        # Hapus file sampah kalau gagal
+        if os.path.exists(file_path):
+            try: os.remove(file_path)
+            except: pass
         return False
 
-# 👇 FUNGSI BARU BUAT BIKIN THUMBNAIL 👇
 def generate_thumbnail(video_path, thumb_path):
+    """
+    Bikin thumbnail otomatis dari detik ke-1 video
+    """
     try:
-        # Pake FFmpeg buat ambil frame di detik ke-1
-        cmd = f"ffmpeg -y -i {video_path} -ss 00:00:01 -vframes 1 {thumb_path} -loglevel panic"
+        # Pake FFmpeg buat ambil frame
+        cmd = f"ffmpeg -y -i \"{video_path}\" -ss 00:00:01 -vframes 1 \"{thumb_path}\" -loglevel panic"
         subprocess.call(cmd, shell=True)
         return True
     except Exception as e:
         print(f"⚠️ Gagal Generate Thumbnail: {e}")
         return False
+        
