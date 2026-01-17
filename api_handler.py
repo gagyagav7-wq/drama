@@ -1,5 +1,9 @@
 import requests
 import json
+import urllib3
+
+# Matiin warning SSL biar terminal bersih
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 BASE_URL = "https://api.sansekai.my.id/api"
 
@@ -16,13 +20,13 @@ def get_drama_data(platform, drama_id):
 
     try:
         # ==========================================
-        # 1. KHUSUS DRAMABOX
+        # 1. KHUSUS DRAMABOX (AMAN)
         # ==========================================
         if platform == 'dramabox':
             try:
                 meta_url = f"{BASE_URL}/dramabox/detail?bookId={drama_id}"
                 print(f"✨ Mengintip Metadata: {meta_url}")
-                meta_res = requests.get(meta_url, headers=headers, timeout=10)
+                meta_res = requests.get(meta_url, headers=headers, timeout=10, verify=False)
                 if meta_res.status_code == 200:
                     meta_data = meta_res.json()
                     data_inner = meta_data.get('data') or {}
@@ -40,72 +44,80 @@ def get_drama_data(platform, drama_id):
 
             video_url = f"{BASE_URL}/dramabox/allepisode?bookId={drama_id}"
             print(f"👉 Mengambil Video: {video_url}")
-            res = requests.get(video_url, headers=headers, timeout=30)
+            res = requests.get(video_url, headers=headers, timeout=30, verify=False)
             if res.status_code == 200:
                 data = res.json()
                 if isinstance(data, list): episodes = data
                 elif isinstance(data, dict): episodes = data.get('data') or []
 
         # ==========================================
-        # 2. KHUSUS NETSHORT (LOGIKA SUKSES CEK_API) 🏆
+        # 2. KHUSUS NETSHORT (AMAN)
         # ==========================================
         elif platform == 'netshort':
             url = f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"
             print(f"👉 Request ke: {url}")
+            res = requests.get(url, headers=headers, timeout=30, verify=False)
             
-            res = requests.get(url, headers=headers, timeout=30)
+            if res.status_code == 200:
+                data_json = res.json()
+                if isinstance(data_json, dict) and 'shortPlayEpisodeInfos' in data_json:
+                    episodes = data_json['shortPlayEpisodeInfos']
+                    drama_info['title'] = data_json.get('shortPlayName')
+                    drama_info['poster'] = data_json.get('shortPlayCover')
+                    drama_info['desc'] = data_json.get('shotIntroduce')
+                    labels = data_json.get('shortPlayLabels') or []
+                    drama_info['tags'] = ", ".join(labels) if isinstance(labels, list) else str(labels)
+                    for ep in episodes:
+                        if 'playVoucher' in ep: ep['videoUrl'] = ep['playVoucher']
+                elif isinstance(data_json, dict):
+                    d = data_json.get('data')
+                    if d:
+                        if isinstance(d, list): episodes = d
+                        elif isinstance(d, dict): episodes = d.get('episodes') or []
+                        if episodes:
+                            first = episodes[0]
+                            drama_info['title'] = first.get('dramaTitle')
+                            drama_info['tags'] = first.get('dramaType')
+
+        # ==========================================
+        # 3. KHUSUS FLICKREELS (FIXED! 🛠️)
+        # ==========================================
+        elif platform == 'flickreels':
+            # URL Khusus Flickreels
+            url = f"{BASE_URL}/flickreels/detailAndAllEpisode?id={drama_id}"
+            print(f"👉 Request ke: {url}")
+            
+            res = requests.get(url, headers=headers, timeout=30, verify=False)
             
             if res.status_code == 200:
                 data_json = res.json()
                 
-                # --- LOGIKA UTAMA (Sesuai Hasil Tes) ---
-                if isinstance(data_json, dict) and 'shortPlayEpisodeInfos' in data_json:
-                    print("✅ YES! Struktur 'shortPlayEpisodeInfos' Ditemukan.")
-                    episodes = data_json['shortPlayEpisodeInfos']
+                # Cek apakah kunci 'episodes' ada?
+                if 'episodes' in data_json:
+                    print("✅ Struktur Flickreels Ditemukan!")
                     
-                    # Metadata Langsung dari Root
-                    drama_info['title'] = data_json.get('shortPlayName')
-                    drama_info['poster'] = data_json.get('shortPlayCover')
-                    drama_info['desc'] = data_json.get('shotIntroduce')
-                    
-                    # Genre
-                    labels = data_json.get('shortPlayLabels') or []
-                    if isinstance(labels, list):
-                        drama_info['tags'] = ", ".join(labels)
-                    else:
-                        drama_info['tags'] = str(labels)
+                    # 1. Ambil Metadata
+                    d = data_json.get('drama') or {}
+                    drama_info['title'] = d.get('title')
+                    drama_info['poster'] = d.get('cover')
+                    drama_info['desc'] = d.get('description')
+                    drama_info['tags'] = "Drama, Romance" # Default, kadang API kosong
 
-                    # 🔥 FIX PENTING: playVoucher -> videoUrl 🔥
-                    for ep in episodes:
-                        if 'playVoucher' in ep:
-                            ep['videoUrl'] = ep['playVoucher']
-                            
-                # --- LOGIKA CADANGAN (Buat jaga-jaga) ---
-                elif isinstance(data_json, dict) and 'data' in data_json:
-                    d = data_json['data']
-                    if isinstance(d, list): episodes = d
-                    elif isinstance(d, dict): episodes = d.get('episodes') or []
-                    
-                    if episodes:
-                        first = episodes[0]
-                        drama_info['title'] = first.get('dramaTitle')
-                        drama_info['tags'] = first.get('dramaType')
-
-        # ==========================================
-        # 3. LAINNYA
-        # ==========================================
-        else:
-            url = f"{BASE_URL}/{platform}/{drama_id}"
-            if platform == 'flickreels': url = f"{BASE_URL}/flickreels/{drama_id}"
-            print(f"👉 Request ke: {url}")
-            res = requests.get(url, headers=headers, timeout=30)
-            if res.status_code == 200:
-                data_json = res.json()
-                root = data_json.get('data', data_json) if isinstance(data_json, dict) else data_json
-                if root:
-                    episodes = root.get('episodes') or root.get('episode_list') or []
-                    drama_info['title'] = root.get('title') or root.get('name')
-                    drama_info['poster'] = root.get('poster') or root.get('cover')
+                    # 2. Ambil Episodes & Buka Kulit 'raw'
+                    raw_eps = data_json['episodes']
+                    for item in raw_eps:
+                        # Video URL ngumpet di dalam 'raw'
+                        raw_data = item.get('raw') or {}
+                        vid_url = raw_data.get('videoUrl')
+                        
+                        if vid_url:
+                            # Kita bikin format baru biar dibaca main.py
+                            episodes.append({
+                                'videoUrl': vid_url,
+                                'title': item.get('name')
+                            })
+                else:
+                    print(f"⚠️ Struktur Flickreels Aneh: {list(data_json.keys())}")
 
         # ==========================================
         # 4. FINALISASI
@@ -133,4 +145,4 @@ def get_drama_data(platform, drama_id):
     except Exception as e:
         print(f"❌ Error System ({platform}): {e}")
         return None
-        
+                            
