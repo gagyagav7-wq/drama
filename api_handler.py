@@ -23,15 +23,12 @@ def get_drama_data(platform, drama_id):
                 meta_url = f"{BASE_URL}/dramabox/detail?bookId={drama_id}"
                 print(f"✨ Mengintip Metadata: {meta_url}")
                 meta_res = requests.get(meta_url, headers=headers, timeout=10)
-                
                 if meta_res.status_code == 200:
                     meta_data = meta_res.json()
                     data_inner = meta_data.get('data') or {}
-                    
                     drama_info['title'] = (meta_data.get('bookName') or data_inner.get('bookName'))
                     drama_info['poster'] = (meta_data.get('coverWap') or meta_data.get('cover') or data_inner.get('coverWap'))
                     drama_info['desc'] = (meta_data.get('introduction') or meta_data.get('desc') or data_inner.get('introduction'))
-
                     tags_raw = meta_data.get('tagList') or data_inner.get('tagList')
                     genre_list = []
                     if tags_raw and isinstance(tags_raw, list):
@@ -44,14 +41,13 @@ def get_drama_data(platform, drama_id):
             video_url = f"{BASE_URL}/dramabox/allepisode?bookId={drama_id}"
             print(f"👉 Mengambil Video: {video_url}")
             res = requests.get(video_url, headers=headers, timeout=30)
-            
             if res.status_code == 200:
                 data = res.json()
                 if isinstance(data, list): episodes = data
                 elif isinstance(data, dict): episodes = data.get('data') or []
 
         # ==========================================
-        # 2. KHUSUS NETSHORT (SESUAI DATA BARU LU) ✅
+        # 2. KHUSUS NETSHORT (LOGIKA SUKSES CEK_API) 🏆
         # ==========================================
         elif platform == 'netshort':
             url = f"{BASE_URL}/netshort/allepisode?shortPlayId={drama_id}"
@@ -62,47 +58,38 @@ def get_drama_data(platform, drama_id):
             if res.status_code == 200:
                 data_json = res.json()
                 
-                # --- LOGIKA BARU: Cek Kunci 'shortPlayEpisodeInfos' ---
+                # --- LOGIKA UTAMA (Sesuai Hasil Tes) ---
                 if isinstance(data_json, dict) and 'shortPlayEpisodeInfos' in data_json:
-                    print("✅ YES! Struktur Netshort ditemukan.")
+                    print("✅ YES! Struktur 'shortPlayEpisodeInfos' Ditemukan.")
                     episodes = data_json['shortPlayEpisodeInfos']
                     
-                    # Ambil Metadata (Langsung dari Root)
+                    # Metadata Langsung dari Root
                     drama_info['title'] = data_json.get('shortPlayName')
                     drama_info['poster'] = data_json.get('shortPlayCover')
                     drama_info['desc'] = data_json.get('shotIntroduce')
                     
-                    # Ambil Genre (Array Strings)
+                    # Genre
                     labels = data_json.get('shortPlayLabels') or []
                     if isinstance(labels, list):
                         drama_info['tags'] = ", ".join(labels)
                     else:
                         drama_info['tags'] = str(labels)
 
-                    # 🔥 PENTERJEMAH: playVoucher -> videoUrl 🔥
-                    # Kita looping semua episode buat benerin kuncinya
+                    # 🔥 FIX PENTING: playVoucher -> videoUrl 🔥
                     for ep in episodes:
-                        # Translate link video
                         if 'playVoucher' in ep:
                             ep['videoUrl'] = ep['playVoucher']
-                        
-                        # Translate cover (opsional)
-                        if 'episodeCover' in ep:
-                            ep['cover'] = ep['episodeCover']
-
-                # --- LOGIKA FALLBACK (Buat jaga-jaga API lama) ---
-                elif isinstance(data_json, dict):
-                    # Coba cari di 'data'
-                    d = data_json.get('data')
-                    if d:
-                        if isinstance(d, list): episodes = d
-                        elif isinstance(d, dict): episodes = d.get('episodes') or []
-                        
-                        # Metadata Fallback
-                        if episodes and len(episodes) > 0:
-                            first = episodes[0]
-                            drama_info['title'] = first.get('dramaTitle')
-                            drama_info['tags'] = first.get('dramaType')
+                            
+                # --- LOGIKA CADANGAN (Buat jaga-jaga) ---
+                elif isinstance(data_json, dict) and 'data' in data_json:
+                    d = data_json['data']
+                    if isinstance(d, list): episodes = d
+                    elif isinstance(d, dict): episodes = d.get('episodes') or []
+                    
+                    if episodes:
+                        first = episodes[0]
+                        drama_info['title'] = first.get('dramaTitle')
+                        drama_info['tags'] = first.get('dramaType')
 
         # ==========================================
         # 3. LAINNYA
@@ -124,7 +111,7 @@ def get_drama_data(platform, drama_id):
         # 4. FINALISASI
         # ==========================================
         if not episodes:
-            print("❌ GAGAL: Episode tidak ditemukan/List Kosong.")
+            print("❌ GAGAL: Episode tidak ditemukan (List Kosong).")
             return None
 
         final_title = drama_info.get('title') or f"{platform.upper()}_{drama_id}"
@@ -132,7 +119,7 @@ def get_drama_data(platform, drama_id):
         final_desc = drama_info.get('desc') or "Sinopsis belum tersedia."
         final_tags = drama_info.get('tags') or "Drama"
 
-        print(f"✅ SUKSES: {final_title} | Genre: {final_tags} | Total: {len(episodes)} Eps")
+        print(f"✅ SUKSES: {final_title} | Total: {len(episodes)} Eps")
 
         return {
             'title': final_title,
@@ -146,4 +133,4 @@ def get_drama_data(platform, drama_id):
     except Exception as e:
         print(f"❌ Error System ({platform}): {e}")
         return None
-                
+        
