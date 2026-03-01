@@ -1,8 +1,8 @@
 import os, time
 from dotenv import load_dotenv
 from telethon.sync import TelegramClient
-from telethon import functions, types
 from telethon.tl.types import DocumentAttributeVideo
+from telethon.tl.functions.channels import CreateForumTopicRequest, GetForumTopicsRequest
 from database import init_db, is_duplicate, save_history
 from utils import get_video_info, download_file, generate_thumbnail
 from api_handler import get_drama_data
@@ -13,7 +13,13 @@ load_dotenv()
 API_ID = os.getenv('API_ID')
 API_HASH = os.getenv('API_HASH')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-GROUP_ID = int(os.getenv('GROUP_ID'))
+
+# Safety check buat GROUP_ID biar gak error 'NoneType'
+raw_group_id = os.getenv('GROUP_ID')
+if not raw_group_id:
+    print("❌ ERROR: GROUP_ID belum diisi di file .env!")
+    exit(1)
+GROUP_ID = int(raw_group_id)
 
 client = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
@@ -31,11 +37,11 @@ def gas_download(platform, drama_id):
         print("❌ Data error atau Episode kosong!")
         return
 
-    # Ambil Info Lengkap
-    title = data['title']
-    poster_url = data['poster'] # URL Poster
-    desc = data['desc']
-    tags = data['tags'] # Genre
+    # Ambil Info Lengkap (Dengan Fallback sesuai JSON lu)
+    title = data.get('title', 'Tanpa Judul')
+    poster_url = data.get('poster') or data.get('cover') 
+    desc = data.get('desc') or data.get('description', 'Tidak ada deskripsi')
+    tags = data.get('tags') or data.get('labels', [])
     total_eps = data.get('total_eps', len(data['episodes']))
     
     # Nama aman buat file
@@ -55,27 +61,29 @@ def gas_download(platform, drama_id):
         except:
             print("⚠️ Gagal download poster (lanjut tanpa thumbnail)")
 
-    # 3. SETUP FOLDER TOPIC
+    # 3. SETUP FOLDER TOPIC (Udah Di-Fix)
     topic_id = None
     is_new_topic = False
     
     try:
-        r = client(functions.channels.GetForumTopicsRequest(channel=GROUP_ID, offset_date=0, offset_id=0, offset_topic=0, limit=100))
+        r = client(GetForumTopicsRequest(channel=GROUP_ID, offset_date=0, offset_id=0, offset_topic=0, limit=100))
         for t in r.topics:
             if hasattr(t, 'title') and t.title.strip() == title.strip():
                 topic_id = t.id
                 print(f"📂 Masuk ke Folder Lama: {title}")
                 break
-    except: pass
+    except Exception as e:
+        print(f"⚠️ Gagal cek topik lama (skip kalau grup bukan forum): {e}")
 
     if not topic_id:
         try:
-            result = client(functions.channels.CreateForumTopicRequest(channel=GROUP_ID, title=title))
+            result = client(CreateForumTopicRequest(channel=GROUP_ID, title=title))
             topic_id = result.updates[0].id
             is_new_topic = True
             print(f"📂 Bikin Folder Baru: {title}")
         except Exception as e:
-            print(f"❌ Gagal bikin folder: {e}"); return
+            print(f"❌ Gagal bikin folder (Pastiin grup udah FORUM dan Bot jadi Admin!): {e}")
+            return # Stop kalau gagal bikin folder biar gak berantakan
 
     # 4. KIRIM PINNED MESSAGE (Cuma kalau folder baru)
     if is_new_topic:
@@ -122,7 +130,7 @@ def gas_download(platform, drama_id):
             thumb_video = "thumb.jpg"
             
             try:
-                # --- STEP A: DOWNLOAD PER PART (LOGIKA 1080p SULTAN) ---
+                # --- STEP A: DOWNLOAD PER PART (LOGIKA UDAH DI-FIX) ---
                 for idx, ep in enumerate(batch, start=start_num):
                     v_url = None
                     
@@ -131,15 +139,16 @@ def gas_download(platform, drama_id):
                     if platform == 'dramabox' and cdn_data and isinstance(cdn_data, list):
                         for provider in cdn_data:
                             v_list = provider.get('videoPathList') or []
-                            # SORTIR: Angka Besar (1080) ke Kecil. Jadi otomatis ambil yang paling gede.
+                            # SORTIR: Angka Besar (1080) ke Kecil.
                             v_list.sort(key=lambda x: x.get('quality', 0), reverse=True)
                             if v_list:
                                 v_url = v_list[0].get('videoPath')
                                 break
                     
-                    # Logika Netshort/Flickreels (Link udah mateng dari api_handler)
+                    # Logika Netshort/Flickreels (Bongkar 'raw' dulu)
                     if not v_url:
-                        v_url = ep.get('videoUrl')
+                        raw_data = ep.get('raw', {})
+                        v_url = raw_data.get('videoUrl') or ep.get('videoUrl')
 
                     # Logika Umum (Fallback)
                     if not v_url: 
@@ -154,7 +163,7 @@ def gas_download(platform, drama_id):
                         print(f"   ⚠️ Link video kosong Part {idx}")
 
                 if not temp_files:
-                    print("   ❌ Gagal download batch ini.")
+                    print("   ❌ Gagal download batch ini. Semua link kosong.")
                     continue
 
                 # --- STEP B: MERGE ---
@@ -179,11 +188,9 @@ def gas_download(platform, drama_id):
                     )
 
                     # LOGIKA THUMBNAIL UPGRADE
-                    # 1. Prioritas Poster (Kalau ada)
                     thumb_to_use = None
                     if has_poster and os.path.exists(poster_path):
                         thumb_to_use = poster_path
-                    # 2. Kalau Poster Gagal, Bikin sendiri dari video (Fitur Baru)
                     else:
                         generate_thumbnail(output_file, thumb_video)
                         if os.path.exists(thumb_video): thumb_to_use = thumb_video
